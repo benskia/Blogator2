@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/benskia/Gator/internal/config"
 )
@@ -21,9 +22,27 @@ type commands struct {
 	Cmds map[string]func(*state, command) error
 }
 
+func (c *commands) register(name string, f func(*state, command) error) {
+	c.Cmds[name] = f
+}
+
+func (c *commands) run(s *state, cmd command) error {
+	f, ok := c.Cmds[cmd.Name]
+	if !ok {
+		return fmt.Errorf("command %s not found", cmd.Name)
+	}
+
+	err := f(s, cmd)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func handlerLogin(s *state, cmd command) error {
 	if len(cmd.Args) != 1 {
-		return errors.New("the login handler expects a single argument, the username")
+		return errors.New("the login handler expects a single argument - the username")
 	}
 
 	newUsername := cmd.Args[0]
@@ -36,33 +55,39 @@ func handlerLogin(s *state, cmd command) error {
 	return nil
 }
 
-func (c *commands) register(name string, f func(*state, command) error) {
-	c.Cmds[name] = f
-}
-
-func (c *commands) run(s *state, cmd command) error {
-	if f, ok := c.Cmds[cmd.Name]; ok {
-		f(s, cmd)
-		return nil
-	}
-
-	return fmt.Errorf("command %s not found", cmd.Name)
-}
-
 func main() {
 	cfg, err := config.Read()
 	if err != nil {
 		log.Fatal("Error reading config file: ", err)
 	}
 
-	cfg.Print()
+	s := state{&cfg}
 
-	cfg.SetUser("distrollo")
-
-	cfg, err = config.Read()
-	if err != nil {
-		log.Fatal("Error reading config file: ", err)
+	cmds := commands{
+		Cmds: make(map[string]func(*state, command) error),
 	}
 
-	cfg.Print()
+	cmds.register("login", handlerLogin)
+
+	numArgs := len(os.Args)
+	if numArgs < 2 {
+		log.Fatal("Expected at least one arg (gator <command> [options])")
+	}
+
+	cmdName := os.Args[1]
+	cmdArgs := []string{}
+	if numArgs > 2 {
+		for _, arg := range os.Args[2:] {
+			cmdArgs = append(cmdArgs, arg)
+		}
+	}
+
+	cmd := command{
+		Name: cmdName,
+		Args: cmdArgs,
+	}
+	err = cmds.run(&s, cmd)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
